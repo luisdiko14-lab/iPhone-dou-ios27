@@ -78,8 +78,9 @@ jobs:
                 echo
                 echo "This temporary Cloudflare Quick Tunnel is available while this workflow run is active."
               } >> "$GITHUB_STEP_SUMMARY"
-              echo "PUBLIC_URL=$URL" >> "$GITHUB_ENV"
-              echo "Public URL: $URL"
+              PUBLIC_URL="$URL"
+              echo "PUBLIC_URL=$PUBLIC_URL" >> "$GITHUB_ENV"
+              echo "Public URL: $PUBLIC_URL"
               break
             fi
             if ! kill -0 "$(cat cloudflared.pid)" 2>/dev/null; then
