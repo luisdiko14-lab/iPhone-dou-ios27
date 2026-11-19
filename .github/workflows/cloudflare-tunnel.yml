@@ -1,0 +1,119 @@
+name: Run iPhone Duo + Cloudflare Tunnel
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iphone-duo-cloudflare-tunnel
+  cancel-in-progress: false
+
+jobs:
+  run-public-tunnel:
+    name: Start web server and public tunnel
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Start iPhone Duo server
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u server.py > server.log 2>&1 &
+          echo "$!" > server.pid
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8080/ > /dev/null; then
+              echo "Web server is responding on port 8080."
+              exit 0
+            fi
+            if ! kill -0 "$(cat server.pid)" 2>/dev/null; then
+              cat server.log
+              echo "server.py exited before becoming ready."
+              exit 1
+            fi
+            sleep 2
+          done
+
+          cat server.log
+          echo "Server did not become ready in time."
+          exit 1
+
+      - name: Install Cloudflare Tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            --output cloudflared
+          sudo install -m 0755 cloudflared /usr/local/bin/cloudflared
+          cloudflared --version
+
+      - name: Create public Quick Tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
+          cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080 \
+            --loglevel info --logfile cloudflared.log &
+          echo "$!" > cloudflared.pid
+
+          for attempt in {1..60}; do
+            URL="$(grep -Eo 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' cloudflared.log | head -n 1 || true)"
+            if [ -n "$URL" ]; then
+              {
+                echo "## iPhone Duo is online"
+                echo
+                echo "**Public URL:** $URL"
+                echo
+                echo "This temporary Cloudflare Quick Tunnel is available while this workflow run is active."
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "PUBLIC_URL=$URL" >> "$GITHUB_ENV"
+              echo "Public URL: $URL"
+              break
+            fi
+            if ! kill -0 "$(cat cloudflared.pid)" 2>/dev/null; then
+              cat cloudflared.log
+              echo "Cloudflare Tunnel exited before creating a URL."
+              exit 1
+            fi
+            sleep 2
+          done
+
+          if [ -z "${PUBLIC_URL:-}" ]; then
+            cat cloudflared.log
+            echo "Timed out waiting for a trycloudflare.com URL."
+            exit 1
+          fi
+
+      - name: Keep server and tunnel alive
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "The public tunnel stays online until this workflow is stopped or the runner reaches its time limit."
+          while kill -0 "$(cat server.pid)" 2>/dev/null && kill -0 "$(cat cloudflared.pid)" 2>/dev/null; do
+            sleep 20
+          done
+          echo "The server or tunnel stopped unexpectedly."
+          cat server.log || true
+          cat cloudflared.log || true
+          exit 1
+
+      - name: Show logs if the job fails
+        if: failure()
+        shell: bash
+        run: |
+          echo "----- server.log -----"
+          cat server.log 2>/dev/null || true
+          echo "----- cloudflared.log -----"
+          cat cloudflared.log 2>/dev/null || true
