@@ -14,6 +14,7 @@ python3 server.py            # http://localhost:8080  (Python stdlib only)
 - **Cover display works too.** Folded, the outer 376×836 screen is a second fully live screen with its own home pager, lock screen and apps.
 - **Boot animation + lock screen** (`P` power key / button; restart & power off in Settings).
 - **Six original wallpapers** (Aurora, Solstice, Lagoon, Orchid, Ember, Graphite) in an iOS-27 / Liquid Glass style. They are original artwork, not Apple's files. Glass tint, blur, brightness, accent, film grain in Settings.
+- **Setup Assistant (first run):** Hello (swipe up or tap) → language (English, Deutsch, Shqip, Español, Français and more; the setup screens are translated for the first five) → region → **cellular** ("Free WiFi 5G" connecting animation) → **Wi-Fi** (pick a network, type a password) → privacy → **Banana ID** (a fictional account that lives only on the device; no password is stored) → terms → personalise → welcome. The status bar shows **5G** and a **Wi-Fi** icon once connected ("No SIM" before). Cellular, Wi-Fi, Banana ID and Language can be changed later in Settings, and Settings › General can run setup again. Cellular and Wi-Fi are simulated; online apps use your real connection. Add `?setup=skip` to the URL to skip it.
 - **Settings:** wallpaper, display & glass, fold physics presets, sounds/volume, device name, 24-hour, °C/°F, storage, server status, restart/power off, About.
 
 ## 20 working apps
@@ -24,7 +25,7 @@ Messages (local assistant bot + shared Room) · Browser · Camera · Music (live
 Binds to 127.0.0.1, checks Host/Origin, serves only `index.html`, `css/`, `js/`, `assets/`, caps body sizes and never executes anything.
 
 ## Tests
-`python3 tests/smoke.py [screenshots_dir]` (needs Playwright) boots the OS, opens all 20 apps on both displays, and checks calculator, reminders, assistant, terminal, server file/chat APIs, 2048, notes, camera and voice memo (fake devices), music, settings, fold/unfold and power.
+`python3 tests/setup_test.py` (the first-run flow) and `python3 tests/smoke.py [screenshots_dir]` (both need Playwright) boots the OS, opens all 20 apps on both displays, and checks calculator, reminders, assistant, terminal, server file/chat APIs, 2048, notes, camera and voice memo (fake devices), music, settings, fold/unfold and power.
 
 ## Honest notes
 - Weather, Maps, Browser and live currency need internet; they were not verified against live services in the build sandbox. Some sites refuse to load inside the Browser app's frame.

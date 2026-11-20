@@ -200,3 +200,5 @@ html[data-tint="clear"] .glass { background: linear-gradient(145deg, rgba(255, 2
 .bbar i { display: block; height: 100%; background: #fff; border-radius: 9px; transform-origin: left; transform: scaleX(0); }
 [data-power="booting"] .bbar i { animation: bfill 3s cubic-bezier(.45, 0, .25, 1) .3s both; }
 @keyframes bfill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.homebar { touch-action: none; }

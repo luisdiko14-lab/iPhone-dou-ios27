@@ -95,23 +95,25 @@ class Screen {
     const r = this.root; r.replaceChildren();
     this.wall = h('div.wall', [1, 2, 3, 4, 5, 6].map(n => h('i.b' + n)));
     this.home = h('div.home'); this.host = h('div.apphost'); this.toasts = h('div.toasts');
-    this.sb = this.statusBar(); this.lock = this.lockScreen(); this.boot = h('div.boot', [h('div.logo', { html: LOGO }), h('div.bname', 'iOS 27'), h('div.bbar', h('i'))]);
+    this.sb = this.statusBar(); this.lock = this.lockScreen(); this.setupEl = D.setup ? D.setup.mount(this) : null; this.boot = h('div.boot', [h('div.logo', { html: LOGO }), h('div.bname', 'iOS 27'), h('div.bbar', h('i'))]);
     let y0 = null;
     this.bar = h('div.homebar', { role: 'button', 'aria-label': 'Home',
-      onpointerdown: e => { y0 = e.clientY; }, onpointerup: e => { if (y0 != null && (Math.abs(e.clientY - y0) < 6 || (e.clientY - y0) / D.scale() < -24)) this.close(); y0 = null; } });
-    r.append(this.wall, this.home, this.host, this.sb, this.toasts, this.lock, this.bar, this.boot);
+      onpointerdown: e => { y0 = e.clientY; try { this.bar.setPointerCapture(e.pointerId); } catch (_) {} }, onpointercancel: () => { y0 = null; }, onpointerup: e => { if (y0 != null && (Math.abs(e.clientY - y0) < 6 || (e.clientY - y0) / D.scale() < -24)) this.close(); y0 = null; } });
+    r.append(this.wall, this.home, this.host, this.sb, this.toasts, this.lock, this.bar, ...(this.setupEl ? [this.setupEl] : []), this.boot);
     this.wide ? this.homeWide() : this.homeNarrow();
   }
   statusBar() {
-    const t = h('span.t'), wifi = h('span.wifi'), batt = h('span.batt', h('i')), bars = h('span.bars', [1, 2, 3, 4].map(() => h('b')));
+    const t = h('span.t'), wifi = h('span.wifi'), batt = h('span.batt', h('i')), bars = h('span.bars', [1, 2, 3, 4].map(() => h('b'))), gen = h('span.gen'), nosim = h('span.off', 'No SIM');
     const upd = () => {
       const a = D.fmtTime(); if (t.textContent !== a) t.textContent = a;
       const b = D.sys.battery; batt.firstChild.style.width = Math.round(b.level * 100) + '%';
       batt.classList.toggle('chg', b.charging); batt.classList.toggle('low', b.level < .2 && !b.charging);
-      const on = navigator.onLine; if (wifi.dataset.on !== String(on)) { wifi.dataset.on = on; wifi.innerHTML = on ? D.icon('wifi') : '<span class="off">No Wi-Fi</span>'; }
+      const n = D.net ? D.net.get() : { cell: { on: true, gen: '5G' }, wifi: { on: navigator.onLine } };
+      bars.classList.toggle('hide', !n.cell.on); gen.classList.toggle('hide', !n.cell.on); nosim.classList.toggle('hide', n.cell.on); gen.textContent = n.cell.gen || '';
+      const key = n.wifi.on ? 'on:' + n.wifi.ssid : 'off'; if (wifi.dataset.k !== key) { wifi.dataset.k = key; wifi.title = n.wifi.on ? n.wifi.ssid : ''; wifi.innerHTML = n.wifi.on ? D.icon('wifi') : ''; }
     };
-    D.sys.onTick(upd); D.on('battery', upd); D.on('net', upd); D.on('settings', upd);
-    return h('div.sb', [h('span.l', t), h('span.r', [bars, wifi, batt])]);
+    D.sys.onTick(upd); D.on('battery', upd); D.on('net', upd); D.on('settings', upd); D.store.on('net', upd);
+    return h('div.sb', [h('span.l', t), h('span.r', [nosim, bars, gen, wifi, batt])]);
   }
   lockScreen() {
     const time = h('div.l-time'), date = h('div.l-date');
