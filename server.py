@@ -4,7 +4,7 @@
     python3 server.py              # http://127.0.0.1:8080  (env HOST / PORT also work)
     python3 server.py --port 9000
 
-Requests that arrive through a proxy or public tunnel (Cloudflare/X-Forwarded-* headers, or an\nunknown Host) get the static OS only; the file/state/chat API answers 403 for them.
+Requests that arrive through a proxy or public tunnel get the static OS only, unless they carry the\naccess key (--token / DUO_TOKEN, sent as X-Duo-Token by the OS when you open the link ending in #key=...).
 
 Serves the web OS and a small JSON API that the apps use when it is running:
 
@@ -28,7 +28,9 @@ import argparse
 import json
 import mimetypes
 import os
+import hmac
 import platform
+import secrets
 import shutil
 import socket
 import sys
@@ -116,9 +118,16 @@ class Handler(BaseHTTPRequestHandler):
         allowed = self.server.allowed_hosts
         return "*" in allowed or name in allowed
 
+    def _token_ok(self):
+        tok = self.server.token
+        sent = self.headers.get("X-Duo-Token") or ""
+        return bool(tok) and hmac.compare_digest(sent.encode(), tok.encode())
+
     def _remote(self):
         """True for requests that did not come straight from this machine's loopback
         (e.g. through a public tunnel). They get the static OS only, never the API."""
+        if self._token_ok():     # holder of the access key (e.g. through the tunnel) is trusted
+            return False
         h = self.headers
         if any(h.get(k) for k in ("Cf-Connecting-Ip", "Cf-Ray", "X-Forwarded-For", "X-Forwarded-Host", "Forwarded")):
             return True
@@ -172,8 +181,8 @@ class Handler(BaseHTTPRequestHandler):
                 if remote:   # public tunnel / unknown host: OS runs standalone, backend stays private
                     if path == "/api/ping":
                         return self._send(200, {"duo": False, "readonly": True})
-                    raise ApiError(403, "Backend is disabled for remote visitors")
-                if not self._host_ok():
+                    raise ApiError(403, "Backend needs the access key (open the link that ends with #key=...)")
+                if not self._host_ok() and not self._token_ok():
                     raise ApiError(403, "Host not allowed")
                 if self.command not in ("GET", "HEAD") and not self._origin_ok():
                     raise ApiError(403, "Cross-origin request blocked")
@@ -312,6 +321,7 @@ def main():
     ap.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"), help="bind address (default 127.0.0.1; 0.0.0.0 exposes the backend to your LAN)")
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--token", default=os.environ.get("DUO_TOKEN", ""), help="access key that unlocks the API for remote/tunnel visitors (env DUO_TOKEN). Empty = remote visitors get the OS only")
     a = ap.parse_args()
     os.makedirs(STORAGE, exist_ok=True)
     seed = os.path.join(STORAGE, "hello.txt")
@@ -321,6 +331,9 @@ def main():
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.daemon_threads = True
     srv.quiet = a.quiet
+    srv.token = a.token.strip()
+    if srv.token:
+        print("access key for remote/tunnel use: append  #key=%s  to the public URL" % ("(hidden)" if os.environ.get("DUO_HIDE_TOKEN") else srv.token))
     # Host header allowlist. Binding to all interfaces means LAN names are expected, so relax it.
     srv.trust_hosts = a.host in ("0.0.0.0", "::")
     srv.allowed_hosts = {"*"} if srv.trust_hosts else {"localhost", "127.0.0.1", "[::1]", a.host.lower()}

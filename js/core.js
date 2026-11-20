@@ -172,18 +172,22 @@ D.blobs = {
 };
 
 /* --------------------------------------------------- Python backend API */
+const KEYN = 'duo27:key';
 D.api = {
   up: false, info: null, _t: 0,
+  key() { try { return localStorage.getItem(KEYN) || ''; } catch (e) { return ''; } },
+  setKey(k) { try { k ? localStorage.setItem(KEYN, k) : localStorage.removeItem(KEYN); } catch (e) {} },
+  initKey() { const m = /[#&?]key=([\w-]{6,128})/.exec(location.hash); if (m) { this.setKey(m[1]); try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {} } },
   async ping() {
     try {
-      const r = await fetch('api/ping', { cache: 'no-store' });
+      const r = await fetch('api/ping', { cache: 'no-store', headers: this.key() ? { 'X-Duo-Token': this.key() } : {} });
       const j = r.ok ? await r.json() : null;
       this.up = !!(j && j.duo); this.info = this.up ? j : null;
     } catch (e) { this.up = false; this.info = null; }
     D.fire('api'); return this.up;
   },
   async call(path, opts = {}) {
-    const r = await fetch(path, { cache: 'no-store', ...opts, headers: { ...(opts.json !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) }, body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body });
+    const r = await fetch(path, { cache: 'no-store', ...opts, headers: { ...(opts.json !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(this.key() ? { 'X-Duo-Token': this.key() } : {}), ...(opts.headers || {}) }, body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body });
     const ct = r.headers.get('content-type') || '';
     const data = ct.includes('json') ? await r.json() : await r.text();
     if (!r.ok) throw new Error((data && data.error) || r.statusText);

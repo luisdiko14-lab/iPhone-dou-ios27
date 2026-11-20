@@ -62,8 +62,15 @@ jobs:
         env:
           HOST: 127.0.0.1
           PORT: "8080"
+          DUO_SECRET: ${{ secrets.DUO_TOKEN }}
         run: |
           set -euo pipefail
+          # Access key that unlocks the Python API for tunnel visitors. Set a repository
+          # secret named DUO_TOKEN to choose your own; otherwise a random one is made.
+          DUO_TOKEN="${DUO_SECRET:-$(openssl rand -hex 16)}"
+          echo "::add-mask::$DUO_TOKEN"
+          export DUO_TOKEN DUO_HIDE_TOKEN=1
+          echo "DUO_TOKEN=$DUO_TOKEN" >> "$GITHUB_ENV"
           python -u server.py > server.log 2>&1 &
           echo "$!" > server.pid
 
@@ -111,8 +118,13 @@ jobs:
                 echo
                 echo "**Public URL:** $URL"
                 echo
+                echo "**Full link with the Python backend unlocked (keep it private):**"
+                echo
+                echo "\`$URL/#key=$DUO_TOKEN\`"
+                echo
+                echo "Open that link once; the OS remembers the key. Anyone with the plain URL gets the OS only. If this repo is public, set a repository secret named DUO_TOKEN so the key is not guessable from this page."
+                echo
                 echo "This temporary Cloudflare Quick Tunnel is available while this workflow run is active."
-                echo "Visitors get the OS only; the file, state and chat API is disabled for tunnel traffic."
               } >> "$GITHUB_STEP_SUMMARY"
               PUBLIC_URL="$URL"
               echo "PUBLIC_URL=$PUBLIC_URL" >> "$GITHUB_ENV"
@@ -140,7 +152,9 @@ jobs:
             if curl --fail --silent "$PUBLIC_URL/" | grep -q "iPhone Duo"; then
               echo "Public page OK."
               code="$(curl --silent --output /dev/null --write-out '%{http_code}' "$PUBLIC_URL/api/files?path=/" || true)"
-              echo "Public /api/files returned HTTP $code (expected 403)."
+              echo "Public /api/files without the key returned HTTP $code (expected 403)."
+              ok="$(curl --silent --header "X-Duo-Token: $DUO_TOKEN" "$PUBLIC_URL/api/ping" || true)"
+              echo "Public /api/ping with the key: $ok"
               [ "$code" = "403" ] && echo "Backend is private over the tunnel." || echo "::warning::Unexpected status for public API: $code"
               exit 0
             fi

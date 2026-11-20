@@ -2,6 +2,7 @@
 (function () {
 'use strict';
 const D = window.Duo;
+D.api.initKey();
 D.settings.apply();
 try { if (/[?&]setup=skip/.test(location.search)) D.store.set('setup.done', true); } catch (e) {}
 document.documentElement.lang = D.lang();
