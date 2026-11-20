@@ -5,7 +5,7 @@ A foldable "iPhone Duo" with a Liquid-Glass-style OS, built in plain HTML/CSS/JS
 **Run it**
 
 ```bash
-python3 server.py            # http://localhost:8027  (Python stdlib only)
+python3 server.py            # http://localhost:8080  (Python stdlib only)
 ```
 …or just open `index.html` / host it on GitHub Pages. The OS works without the server; the server adds real file storage, cross-device state sync and a shared chat room.
 
@@ -30,3 +30,6 @@ Binds to 127.0.0.1, checks Host/Origin, serves only `index.html`, `css/`, `js/`,
 - Weather, Maps, Browser and live currency need internet; they were not verified against live services in the build sandbox. Some sites refuse to load inside the Browser app's frame.
 - Camera/microphone need https or localhost.
 - Not affiliated with Apple.
+
+## Public tunnel / GitHub Pages
+The repo's workflows (`static.yml`, `cloudflare-tunnel.yml`) are kept. The tunnel runs `python server.py` on port 8080; requests coming through it get the OS only, and the file/state/chat API is disabled for them, so a public link can't read or write your storage. On GitHub Pages the OS runs fully standalone.

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """iPhone Duo OS backend (Python standard library only).
 
-    python3 server.py              # http://127.0.0.1:8027
+    python3 server.py              # http://127.0.0.1:8080  (env HOST / PORT also work)
     python3 server.py --port 9000
+
+Requests that arrive through a proxy or public tunnel (Cloudflare/X-Forwarded-* headers, or an\nunknown Host) get the static OS only; the file/state/chat API answers 403 for them.
 
 Serves the web OS and a small JSON API that the apps use when it is running:
 
@@ -114,6 +116,14 @@ class Handler(BaseHTTPRequestHandler):
         allowed = self.server.allowed_hosts
         return "*" in allowed or name in allowed
 
+    def _remote(self):
+        """True for requests that did not come straight from this machine's loopback
+        (e.g. through a public tunnel). They get the static OS only, never the API."""
+        h = self.headers
+        if any(h.get(k) for k in ("Cf-Connecting-Ip", "Cf-Ray", "X-Forwarded-For", "X-Forwarded-Host", "Forwarded")):
+            return True
+        return not self.server.trust_hosts and not self._host_ok()
+
     def _origin_ok(self):
         origin = self.headers.get("Origin")
         if not origin:
@@ -154,12 +164,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self):
         try:
-            if not self._host_ok():
-                raise ApiError(403, "Host not allowed")
+            remote = self._remote()
             u = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
             path = u.path
             if path.startswith("/api/"):
+                if remote:   # public tunnel / unknown host: OS runs standalone, backend stays private
+                    if path == "/api/ping":
+                        return self._send(200, {"duo": False, "readonly": True})
+                    raise ApiError(403, "Backend is disabled for remote visitors")
+                if not self._host_ok():
+                    raise ApiError(403, "Host not allowed")
                 if self.command not in ("GET", "HEAD") and not self._origin_ok():
                     raise ApiError(403, "Cross-origin request blocked")
                 return self._api(path[5:], q)
@@ -294,8 +309,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     ap = argparse.ArgumentParser(description="iPhone Duo OS backend")
-    ap.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1; use 0.0.0.0 for LAN)")
-    ap.add_argument("--port", type=int, default=8027)
+    ap.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"), help="bind address (default 127.0.0.1; 0.0.0.0 exposes the backend to your LAN)")
+    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args()
     os.makedirs(STORAGE, exist_ok=True)
@@ -307,7 +322,8 @@ def main():
     srv.daemon_threads = True
     srv.quiet = a.quiet
     # Host header allowlist. Binding to all interfaces means LAN names are expected, so relax it.
-    srv.allowed_hosts = {"*"} if a.host in ("0.0.0.0", "::") else {"localhost", "127.0.0.1", "[::1]", a.host.lower()}
+    srv.trust_hosts = a.host in ("0.0.0.0", "::")
+    srv.allowed_hosts = {"*"} if srv.trust_hosts else {"localhost", "127.0.0.1", "[::1]", a.host.lower()}
     print("iPhone Duo OS  →  http://%s:%d/   (Ctrl+C to stop)" % ("localhost" if a.host == "127.0.0.1" else a.host, a.port))
     if a.host in ("0.0.0.0", "::"):
         print("warning: listening on all interfaces; anyone on your network can read and write ./storage")
