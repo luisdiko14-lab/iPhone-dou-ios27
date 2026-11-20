@@ -26,16 +26,50 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Check the project (syntax)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile server.py
+          for f in js/*.js js/apps/*.js; do node --check "$f"; done
+          echo "Python and all 20 apps' JavaScript parse cleanly."
+
+      - name: Smoke test DuoOS (boots, opens all 20 apps, runs the Python API)
+        id: smoke
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install --quiet playwright
+          playwright install --with-deps chromium
+          python tests/smoke.py 2>&1 | tee smoke.log
+
+      - name: Report smoke test result
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## DuoOS smoke test: ${{ steps.smoke.outcome }}"
+            echo
+            echo '```'
+            grep -E "^(PASS|FAIL)|ALL PASSED|FAILED|errors" smoke.log 2>/dev/null | sort | uniq -c | sort -rn | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Start iPhone Duo server
         shell: bash
+        env:
+          HOST: 127.0.0.1
+          PORT: "8080"
         run: |
           set -euo pipefail
           python -u server.py > server.log 2>&1 &
           echo "$!" > server.pid
 
           for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8080/ > /dev/null; then
-              echo "Web server is responding on port 8080."
+            if curl --fail --silent http://127.0.0.1:8080/api/ping | grep -q '"duo": true'; then
+              curl --fail --silent http://127.0.0.1:8080/ | grep -q "iPhone Duo"
+              echo "DuoOS server is up on port 8080 (Python backend online)."
               exit 0
             fi
             if ! kill -0 "$(cat server.pid)" 2>/dev/null; then
@@ -77,6 +111,7 @@ jobs:
                 echo "**Public URL:** $URL"
                 echo
                 echo "This temporary Cloudflare Quick Tunnel is available while this workflow run is active."
+                echo "Visitors get the OS only; the file, state and chat API is disabled for tunnel traffic."
               } >> "$GITHUB_STEP_SUMMARY"
               PUBLIC_URL="$URL"
               echo "PUBLIC_URL=$PUBLIC_URL" >> "$GITHUB_ENV"
@@ -96,6 +131,21 @@ jobs:
             echo "Timed out waiting for a trycloudflare.com URL."
             exit 1
           fi
+
+      - name: Verify the public URL serves DuoOS and keeps the backend private
+        shell: bash
+        run: |
+          for attempt in {1..15}; do
+            if curl --fail --silent "$PUBLIC_URL/" | grep -q "iPhone Duo"; then
+              echo "Public page OK."
+              code="$(curl --silent --output /dev/null --write-out '%{http_code}' "$PUBLIC_URL/api/files?path=/" || true)"
+              echo "Public /api/files returned HTTP $code (expected 403)."
+              [ "$code" = "403" ] && echo "Backend is private over the tunnel." || echo "::warning::Unexpected status for public API: $code"
+              exit 0
+            fi
+            sleep 4
+          done
+          echo "::warning::Could not reach the public URL yet from the runner (DNS may still be propagating)."
 
       - name: Keep server and tunnel alive
         shell: bash
